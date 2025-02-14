@@ -547,94 +547,85 @@ def run_train_bpe(
 ):
     """Given the path to an input corpus, run train a BPE tokenizer and
     output its vocabulary and merges.
-
-    Args:
-        input_path: str | os.PathLike
-            Path to BPE tokenizer training data.
-        vocab_size: int
-            Total number of items in the tokenizer's vocabulary (including special tokens).
-        special_tokens: list[str]
-            A list of string special tokens to be added to the tokenizer vocabulary.
-            These strings will never be split into multiple tokens, and will always be
-            kept as a single token. If these special tokens occur in the `input_path`,
-            they are treated as any other string.
-
-    Returns:
-        Tuple of (vocab, merges):
-            vocab: dict[int, bytes]
-                The trained tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
-                to bytes (token bytes)
-            merges: list[tuple[bytes, bytes]]
-                BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
-                representing that <token1> was merged with <token2>.
-                Merges are ordered by order of creation.
     """
-    # Initialize vocabulary and add special tokens
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    
+    # Initialize vocabulary with bytes 0-255
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
+
+    # Add special tokens to vocab
     for token in special_tokens:
-        vocab[next_token_id] = token.encode('utf-8') 
+        vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Process text and build initial word frequencies
+    # Read and pre-tokenize in chunks to reduce memory usage
+    chunk_size = 1024 * 1024  # 1MB chunks
     word_freqs = Counter()
+    
     with open(input_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            for word in re.findall(r'\S+|\s+', line):
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            for word in re.findall(PAT, chunk):
                 word_freqs[tuple(bytes([b]) for b in word.encode('utf-8'))] += 1
 
-    # Track merges
+    # Precompute byte pairs for each word to avoid repeated computation
+    word_pairs = {}
+    for word in word_freqs:
+        if len(word) < 2:
+            continue
+        pairs = tuple(zip(word[:-1], word[1:]))
+        word_pairs[word] = pairs
+
     merges = []
-    
-    # Precompute byte pairs for each word to speed up frequency counting
-    pairs_in_words = {}
-    
     while len(vocab) < vocab_size:
-        # Count pairs efficiently using precomputed pairs
+        # Count pair frequencies more efficiently using precomputed pairs
         pair_freqs = defaultdict(int)
         for word, freq in word_freqs.items():
             if len(word) < 2:
                 continue
-                
-            # Get or compute pairs for this word
-            if word not in pairs_in_words:
-                pairs_in_words[word] = list(zip(word[:-1], word[1:]))
-                
-            for pair in pairs_in_words[word]:
+            pairs = word_pairs[word]
+            for pair in pairs:
                 pair_freqs[pair] += freq
 
         if not pair_freqs:
             break
 
-        # Find best pair and add to merges
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
         merges.append(best_pair)
-        
-        # Add merged token to vocab
+
+        # Add merge result to vocab
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
-        next_token_id += 1
-
-        # Update word frequencies
-        new_word_freqs = Counter()
-        pairs_in_words.clear()  # Reset precomputed pairs
         
+        # Apply merge with optimized string operations
+        new_word_freqs = Counter()
         for word, freq in word_freqs.items():
             if len(word) < 2:
                 new_word_freqs[word] += freq
                 continue
 
-            word = list(word)
+            # Perform merge in a single pass
+            new_word = []
             i = 0
-            while i < len(word) - 1:
-                if word[i] == best_pair[0] and word[i+1] == best_pair[1]:
-                    word[i:i+2] = [new_token]
+            while i < len(word):
+                if i < len(word) - 1 and (word[i], word[i+1]) == best_pair:
+                    new_word.append(new_token)
+                    i += 2
                 else:
+                    new_word.append(word[i])
                     i += 1
             
-            word = tuple(word)
-            new_word_freqs[word] += freq
+            new_word = tuple(new_word)
+            new_word_freqs[new_word] += freq
+            
+            # Update precomputed pairs for the new word
+            if len(new_word) >= 2:
+                word_pairs[new_word] = tuple(zip(new_word[:-1], new_word[1:]))
 
         word_freqs = new_word_freqs
+        next_token_id += 1
 
     return vocab, merges
