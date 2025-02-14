@@ -612,7 +612,7 @@ def run_train_bpe(
 
         # Find most frequent pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
-        merges.append(best_pair)
+        merges.append((best_pair[0], best_pair[1]))
 
         # Add merged token to vocab
         new_token = best_pair[0] + best_pair[1]
@@ -622,24 +622,34 @@ def run_train_bpe(
         # Update word frequencies with merged tokens
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
+            # Convert word to list of bytes for processing
+            byte_word = list(word)
             new_word = []
             i = 0
-            while i < len(word):
-                if i < len(word)-1 and word[i:i+1] == best_pair[0] and word[i+1:i+2] == best_pair[1]:
+            while i < len(byte_word):
+                if i < len(byte_word) - 1 and \
+                   byte_word[i:i+2] == list(best_pair):
+                    # If the next two bytes match the best pair, merge them
                     new_word.append(new_token)
                     i += 2
                 else:
-                    new_word.append(word[i:i+1])
+                    # Otherwise, keep the current byte
+                    new_word.append(byte_word[i])
                     i += 1
             
-            # Convert new_word to bytes before creating tuple
-            new_word_bytes = b''.join(new_word)
-            new_word_freqs[new_word_bytes] += freq
+            # Convert new_word to bytes before adding to frequencies
+            try:
+                new_word_bytes = b''.join(new_word) if isinstance(new_word[0], bytes) else \
+                    b''.join(token if isinstance(token, bytes) else token.encode('utf-8') for token in new_word)
+                new_word_freqs[new_word_bytes] += freq
+            except Exception as e:
+                print(f"Error processing word: {word}, new_word: {new_word}")
+                raise e
 
         # Update word_freqs for next iteration
         word_freqs = new_word_freqs
 
-        # Break if no more merges are possible
+        # Break if no more merges are possible or vocab size is reached
         if len(vocab) >= vocab_size:
             break
 
