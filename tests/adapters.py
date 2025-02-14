@@ -601,7 +601,7 @@ def run_train_bpe(
     # Count word frequencies
     word_freqs = Counter()
     for word in words:
-        # Get bytes representation with Unicode-like encoding
+        # Get bytes representation 
         word_bytes = word.encode('utf-8')
         word_freqs[tuple(word_bytes)] += 1
 
@@ -623,8 +623,14 @@ def run_train_bpe(
         # Find most frequent pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
 
+        # Ensure we're using valid byte values
+        if best_pair[0] < 0 or best_pair[0] > 255 or best_pair[1] < 0 or best_pair[1] > 255:
+            break
+
         # Create the merge pair
-        merge_bytes = best_pair[0] + best_pair[1]
+        merge_bytes = bytes([best_pair[0]]) + bytes([best_pair[1]])
+        
+        # Add to merges using the specific format from the test
         merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))
 
         # Add merged token to vocab
@@ -638,7 +644,7 @@ def run_train_bpe(
             i = 0
             while i < len(word):
                 if i < len(word) - 1 and word[i:i+2] == best_pair:
-                    new_word.append(merge_bytes)
+                    new_word.append(merge_bytes[0])
                     i += 2
                 else:
                     new_word.append(word[i])
