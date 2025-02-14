@@ -6,6 +6,7 @@ from typing import IO, BinaryIO, Iterable, Optional, Type
 
 import numpy.typing as npt
 import torch
+import regex as re
 
 
 def run_positionwise_feedforward(
@@ -569,7 +570,10 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    # Pre-tokenization regex pattern
+    import regex as re
+    from collections import defaultdict, Counter
+
+    # Pre-tokenization regex pattern 
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
     # Initialize vocabulary with bytes 0-255
@@ -584,9 +588,9 @@ def run_train_bpe(
     # Read and pre-tokenize input text
     with open(input_path, 'r', encoding='utf-8') as f:
         text = f.read()
-
+    
     words = re.findall(PAT, text)
-
+    
     # Count word frequencies
     word_freqs = Counter()
     for word in words:
@@ -594,7 +598,7 @@ def run_train_bpe(
 
     # Track merge operations
     merges = []
-
+    
     # Continue merging until reaching vocab_size
     while len(vocab) < vocab_size:
         # Count pair frequencies
@@ -605,19 +609,19 @@ def run_train_bpe(
             for i in range(len(word)-1):
                 pair = (word[i:i+1], word[i+1:i+2])
                 pair_freqs[pair] += freq
-
+                
         if not pair_freqs:
             break
-
+            
         # Find most frequent pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
         merges.append(best_pair)
-
+        
         # Add merged token to vocab
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
-
+        
         # Update word frequencies with merged tokens
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
@@ -630,16 +634,7 @@ def run_train_bpe(
                 else:
                     new_word.append(word[i:i+1])
                     i += 1
-            
-            # Convert new_word to bytes before creating tuple
-            new_word_bytes = b''.join(new_word)
-            new_word_freqs[new_word_bytes] += freq
-
-        # Update word_freqs for next iteration
+            new_word_freqs[tuple(b''.join(new_word))] += freq
         word_freqs = new_word_freqs
-
-        # Break if no more merges are possible
-        if len(vocab) >= vocab_size:
-            break
 
     return vocab, merges
