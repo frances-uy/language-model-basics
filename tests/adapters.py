@@ -656,5 +656,3 @@ def run_train_bpe(
             break
 
     return vocab, merges
-
-Version 6 of 6
