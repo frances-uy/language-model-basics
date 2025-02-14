@@ -539,7 +539,6 @@ def get_tokenizer(
     """
     raise NotImplementedError
 
-
 def gpt2_bytes_to_unicode():
     """
     Return a mapping of bytes 0-255 to unicode strings.
@@ -597,7 +596,7 @@ def run_train_bpe(
     # Efficient frequency counting
     word_freqs = Counter()
     for word in words:
-        word_bytes = word.encode('utf-8')
+        word_bytes = tuple(word.encode('utf-8'))
         word_freqs[word_bytes] += 1
 
     # Track merge operations
@@ -605,19 +604,21 @@ def run_train_bpe(
 
     # Precompute pair frequencies to improve performance
     while len(vocab) < vocab_size:
-        # Fast pair frequency counting
+        # Fast pair frequency counting using a single pass
         pair_freqs = defaultdict(int)
         for word, freq in word_freqs.items():
-            word_tokens = list(word)
-            for i in range(len(word_tokens) - 1):
-                pair = (word_tokens[i], word_tokens[i+1])
+            for i in range(len(word) - 1):
+                pair = (word[i], word[i+1])
                 pair_freqs[pair] += freq
 
         if not pair_freqs:
             break
 
         # Find most frequent pair with lexicographic tiebreaker
-        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
+        best_pair = min(
+            ((p, f) for p, f in pair_freqs.items() if p[0] < 256 and p[1] < 256), 
+            key=lambda x: (-x[1], x[0])
+        )[0]
 
         # Create merge token
         merge_bytes = bytes([best_pair[0]]) + bytes([best_pair[1]])
@@ -629,24 +630,22 @@ def run_train_bpe(
         vocab[next_token_id] = merge_bytes
         next_token_id += 1
 
-        # Efficient word frequency update
+        # Efficient word frequency update with single-pass merging
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
             new_word = []
             i = 0
-            word_tokens = list(word)
-            while i < len(word_tokens):
-                if i < len(word_tokens) - 1 and \
-                   word_tokens[i:i+2] == list(best_pair):
+            while i < len(word):
+                if i < len(word) - 1 and word[i:i+2] == best_pair:
                     new_word.append(merge_bytes[0])
                     i += 2
                 else:
-                    new_word.append(word_tokens[i])
+                    new_word.append(word[i])
                     i += 1
             
-            # Convert to bytes for frequency tracking
-            new_word_bytes = bytes(new_word)
-            new_word_freqs[new_word_bytes] += freq
+            # Convert to tuple for Counter
+            new_word_tuple = tuple(new_word)
+            new_word_freqs[new_word_tuple] += freq
 
         # Update word frequencies
         word_freqs = new_word_freqs
