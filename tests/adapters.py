@@ -7,7 +7,7 @@ from typing import IO, BinaryIO, Iterable, Optional, Type
 import numpy.typing as npt
 import torch
 import regex as re
-
+from collections import defaultdict, Counter
 
 def run_positionwise_feedforward(
     d_model: int,
@@ -570,9 +570,6 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    import regex as re
-    from collections import defaultdict, Counter
-
     # Pre-tokenization regex pattern 
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
