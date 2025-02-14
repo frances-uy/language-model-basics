@@ -591,7 +591,9 @@ def run_train_bpe(
     # Count word frequencies
     word_freqs = Counter()
     for word in words:
-        word_freqs[tuple(word.encode('utf-8'))] += 1
+        # Ensure word is converted to bytes
+        word_bytes = word.encode('utf-8')
+        word_freqs[word_bytes] += 1
 
     # Track merge operations
     merges = []
@@ -601,10 +603,11 @@ def run_train_bpe(
         # Count pair frequencies
         pair_freqs = defaultdict(int)
         for word, freq in word_freqs.items():
-            if len(word) < 2:
+            word_tokens = list(word)
+            if len(word_tokens) < 2:
                 continue
-            for i in range(len(word)-1):
-                pair = (word[i:i+1], word[i+1:i+2])
+            for i in range(len(word_tokens)-1):
+                pair = (bytes([word_tokens[i]]), bytes([word_tokens[i+1]]))
                 pair_freqs[pair] += freq
 
         if not pair_freqs:
@@ -612,7 +615,7 @@ def run_train_bpe(
 
         # Find most frequent pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
-        merges.append((best_pair[0], best_pair[1]))
+        merges.append(best_pair)
 
         # Add merged token to vocab
         new_token = best_pair[0] + best_pair[1]
@@ -622,29 +625,25 @@ def run_train_bpe(
         # Update word frequencies with merged tokens
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
-            # Convert word to list of bytes for processing
-            byte_word = list(word)
+            # Convert word to list of bytes
+            word_tokens = list(word)
             new_word = []
             i = 0
-            while i < len(byte_word):
-                if i < len(byte_word) - 1 and \
-                   byte_word[i:i+2] == list(best_pair):
+            while i < len(word_tokens):
+                if i < len(word_tokens) - 1 and \
+                   bytes([word_tokens[i]]) == best_pair[0] and \
+                   bytes([word_tokens[i+1]]) == best_pair[1]:
                     # If the next two bytes match the best pair, merge them
                     new_word.append(new_token)
                     i += 2
                 else:
                     # Otherwise, keep the current byte
-                    new_word.append(byte_word[i])
+                    new_word.append(bytes([word_tokens[i]]))
                     i += 1
             
-            # Convert new_word to bytes before adding to frequencies
-            try:
-                new_word_bytes = b''.join(new_word) if isinstance(new_word[0], bytes) else \
-                    b''.join(token if isinstance(token, bytes) else token.encode('utf-8') for token in new_word)
-                new_word_freqs[new_word_bytes] += freq
-            except Exception as e:
-                print(f"Error processing word: {word}, new_word: {new_word}")
-                raise e
+            # Convert new_word to a single byte string
+            new_word_bytes = b''.join(new_word)
+            new_word_freqs[new_word_bytes] += freq
 
         # Update word_freqs for next iteration
         word_freqs = new_word_freqs
