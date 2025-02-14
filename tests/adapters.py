@@ -577,6 +577,10 @@ def run_train_bpe(
     # Pre-tokenization regex pattern
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
+    # Create bytes to unicode mapping
+    byte_encoder = gpt2_bytes_to_unicode()
+    byte_decoder = {v: k for k, v in byte_encoder.items()}
+
     # Initialize vocabulary with bytes
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
@@ -586,14 +590,14 @@ def run_train_bpe(
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Read and pre-tokenize input text
+    # Read input text
     with open(input_path, 'r', encoding='utf-8') as f:
         text = f.read()
 
     # Tokenize text
     words = re.findall(PAT, text)
 
-    # Efficient frequency counting
+    # Efficient frequency tracking
     word_freqs = Counter()
     for word in words:
         word_bytes = tuple(word.encode('utf-8'))
@@ -602,9 +606,9 @@ def run_train_bpe(
     # Track merge operations
     merges = []
 
-    # Precompute pair frequencies to improve performance
+    # Precompute pair frequencies
     while len(vocab) < vocab_size:
-        # Fast pair frequency counting using a single pass
+        # Fast pair frequency counting
         pair_freqs = defaultdict(int)
         for word, freq in word_freqs.items():
             for i in range(len(word) - 1):
@@ -614,11 +618,12 @@ def run_train_bpe(
         if not pair_freqs:
             break
 
-        # Find most frequent pair with lexicographic tiebreaker
-        best_pair = min(
-            ((p, f) for p, f in pair_freqs.items() if p[0] < 256 and p[1] < 256), 
-            key=lambda x: (-x[1], x[0])
-        )[0]
+        # Select most frequent pair with specific tiebreaker
+        def merge_key(pair_item):
+            pair, freq = pair_item
+            return (-freq, pair[0], pair[1])
+
+        best_pair = max(pair_freqs.items(), key=merge_key)[0]
 
         # Create merge token
         merge_bytes = bytes([best_pair[0]]) + bytes([best_pair[1]])
@@ -630,7 +635,7 @@ def run_train_bpe(
         vocab[next_token_id] = merge_bytes
         next_token_id += 1
 
-        # Efficient word frequency update with single-pass merging
+        # Update word frequencies
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
             new_word = []
@@ -643,7 +648,6 @@ def run_train_bpe(
                     new_word.append(word[i])
                     i += 1
             
-            # Convert to tuple for Counter
             new_word_tuple = tuple(new_word)
             new_word_freqs[new_word_tuple] += freq
 
