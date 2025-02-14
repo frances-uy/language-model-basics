@@ -545,6 +545,30 @@ def run_train_bpe(
     special_tokens: list[str],
     **kwargs,
 ):
+    """Given the path to an input corpus, run train a BPE tokenizer and
+    output its vocabulary and merges.
+
+    Args:
+        input_path: str | os.PathLike
+            Path to BPE tokenizer training data.
+        vocab_size: int
+            Total number of items in the tokenizer's vocabulary (including special tokens).
+        special_tokens: list[str]
+            A list of string special tokens to be added to the tokenizer vocabulary.
+            These strings will never be split into multiple tokens, and will always be
+            kept as a single token. If these special tokens occur in the `input_path`,
+            they are treated as any other string.
+
+    Returns:
+        Tuple of (vocab, merges):
+            vocab: dict[int, bytes]
+                The trained tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
+                to bytes (token bytes)
+            merges: list[tuple[bytes, bytes]]
+                BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
+                representing that <token1> was merged with <token2>.
+                Merges are ordered by order of creation.
+    """
     # Pre-tokenization regex pattern
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
@@ -552,7 +576,7 @@ def run_train_bpe(
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
 
-    # Add special tokens to vocab 
+    # Add special tokens to vocab
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
@@ -560,17 +584,20 @@ def run_train_bpe(
     # Read and pre-tokenize input text
     with open(input_path, 'r', encoding='utf-8') as f:
         text = f.read()
-    
+
     words = re.findall(PAT, text)
-    
-    # Count word frequencies
+
+    # Count word frequencies using bytes
     word_freqs = Counter()
     for word in words:
-        word_freqs[tuple(word.encode('utf-8'))] += 1
+        byte_seq = word.encode('utf-8')
+        # Convert to list of single bytes
+        byte_list = [bytes([b]) for b in byte_seq]
+        word_freqs[tuple(byte_list)] += 1
 
     # Track merge operations
     merges = []
-    
+
     # Continue merging until reaching vocab_size
     while len(vocab) < vocab_size:
         # Count pair frequencies
@@ -579,35 +606,34 @@ def run_train_bpe(
             if len(word) < 2:
                 continue
             for i in range(len(word)-1):
-                pair = (word[i:i+1], word[i+1:i+2]) 
+                pair = (word[i], word[i+1])
                 pair_freqs[pair] += freq
-                
+
         if not pair_freqs:
             break
-            
+
         # Find most frequent pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
         merges.append(best_pair)
-        
+
         # Add merged token to vocab
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
-        
+
         # Update word frequencies with merged tokens
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
             new_word = []
             i = 0
             while i < len(word):
-                if i < len(word)-1 and word[i:i+1] == best_pair[0] and word[i+1:i+2] == best_pair[1]:
+                if i < len(word)-1 and word[i] == best_pair[0] and word[i+1] == best_pair[1]:
                     new_word.append(new_token)
                     i += 2
                 else:
-                    new_word.append(word[i:i+1])
+                    new_word.append(word[i])
                     i += 1
-            new_word_freqs[tuple(b''.join(new_word))] += freq
+            new_word_freqs[tuple(new_word)] += freq
         word_freqs = new_word_freqs
 
     return vocab, merges
-   
