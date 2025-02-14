@@ -578,10 +578,6 @@ def run_train_bpe(
     # Pre-tokenization regex pattern
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-    # Create bytes to unicode mapping
-    byte_encoder = gpt2_bytes_to_unicode()
-    byte_decoder = {v: k for k, v in byte_encoder.items()}
-
     # Initialize vocabulary with bytes
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
@@ -598,65 +594,67 @@ def run_train_bpe(
     # Tokenize text
     words = re.findall(PAT, text)
 
-    # Count word frequencies
+    # Efficient frequency counting
     word_freqs = Counter()
     for word in words:
-        # Get bytes representation 
         word_bytes = word.encode('utf-8')
-        word_freqs[tuple(word_bytes)] += 1
+        word_freqs[word_bytes] += 1
 
     # Track merge operations
     merges = []
 
-    # Merge process
+    # Precompute pair frequencies to improve performance
     while len(vocab) < vocab_size:
-        # Count pair frequencies
+        # Fast pair frequency counting
         pair_freqs = defaultdict(int)
         for word, freq in word_freqs.items():
-            for i in range(len(word) - 1):
-                pair = (word[i], word[i+1])
+            word_tokens = list(word)
+            for i in range(len(word_tokens) - 1):
+                pair = (word_tokens[i], word_tokens[i+1])
                 pair_freqs[pair] += freq
 
         if not pair_freqs:
             break
 
-        # Find most frequent pair
+        # Find most frequent pair with lexicographic tiebreaker
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
 
-        # Ensure we're using valid byte values
-        if best_pair[0] < 0 or best_pair[0] > 255 or best_pair[1] < 0 or best_pair[1] > 255:
-            break
-
-        # Create the merge pair
+        # Create merge token
         merge_bytes = bytes([best_pair[0]]) + bytes([best_pair[1]])
         
-        # Add to merges using the specific format from the test
+        # Track specific merge representation
         merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))
 
         # Add merged token to vocab
         vocab[next_token_id] = merge_bytes
         next_token_id += 1
 
-        # Update word frequencies
+        # Efficient word frequency update
         new_word_freqs = Counter()
         for word, freq in word_freqs.items():
             new_word = []
             i = 0
-            while i < len(word):
-                if i < len(word) - 1 and word[i:i+2] == best_pair:
+            word_tokens = list(word)
+            while i < len(word_tokens):
+                if i < len(word_tokens) - 1 and \
+                   word_tokens[i:i+2] == list(best_pair):
                     new_word.append(merge_bytes[0])
                     i += 2
                 else:
-                    new_word.append(word[i])
+                    new_word.append(word_tokens[i])
                     i += 1
             
-            new_word_freqs[tuple(new_word)] += freq
+            # Convert to bytes for frequency tracking
+            new_word_bytes = bytes(new_word)
+            new_word_freqs[new_word_bytes] += freq
 
         # Update word frequencies
         word_freqs = new_word_freqs
 
-        # Break if no more merges or vocab size reached
+        # Terminate if vocab size reached
         if len(vocab) >= vocab_size:
             break
 
     return vocab, merges
+
+Version 6 of 6
