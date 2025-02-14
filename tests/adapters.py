@@ -569,4 +569,71 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+    import regex as re
+    from collections import defaultdict, Counter
+
+    # Pre-tokenization regex pattern 
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+    # Initialize vocabulary with bytes 0-255
+    vocab = {i: bytes([i]) for i in range(256)}
+    next_token_id = 256
+
+    # Add special tokens to vocab
+    for token in special_tokens:
+        vocab[next_token_id] = token.encode('utf-8')
+        next_token_id += 1
+
+    # Read and pre-tokenize input text
+    with open(input_path, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    words = re.findall(PAT, text)
+    
+    # Count word frequencies
+    word_freqs = Counter()
+    for word in words:
+        word_freqs[tuple(word.encode('utf-8'))] += 1
+
+    # Track merge operations
+    merges = []
+    
+    # Continue merging until reaching vocab_size
+    while len(vocab) < vocab_size:
+        # Count pair frequencies
+        pair_freqs = defaultdict(int)
+        for word, freq in word_freqs.items():
+            if len(word) < 2:
+                continue
+            for i in range(len(word)-1):
+                pair = (word[i:i+1], word[i+1:i+2])
+                pair_freqs[pair] += freq
+                
+        if not pair_freqs:
+            break
+            
+        # Find most frequent pair
+        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
+        merges.append(best_pair)
+        
+        # Add merged token to vocab
+        new_token = best_pair[0] + best_pair[1]
+        vocab[next_token_id] = new_token
+        next_token_id += 1
+        
+        # Update word frequencies with merged tokens
+        new_word_freqs = Counter()
+        for word, freq in word_freqs.items():
+            new_word = []
+            i = 0
+            while i < len(word):
+                if i < len(word)-1 and word[i:i+1] == best_pair[0] and word[i+1:i+2] == best_pair[1]:
+                    new_word.append(new_token)
+                    i += 2
+                else:
+                    new_word.append(word[i:i+1])
+                    i += 1
+            new_word_freqs[tuple(b''.join(new_word))] += freq
+        word_freqs = new_word_freqs
+
+    return vocab, merges
