@@ -1,3 +1,4 @@
 regex
 torch==2.2.1
 numpy
+transformers>=4.37.0  # Latest stable version that works with torch 2.2.1
