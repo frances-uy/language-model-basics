@@ -273,34 +273,42 @@ def run_train_bpe(
     special_tokens: list[str],
     **kwargs,
 ):
+    """Optimized BPE training implementation"""
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     
-    # Initialize vocab directly
+    # Fast vocabulary initialization
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
-
-    # Add special tokens with minimal overhead
+    
+    # Fast special token handling - encode only once
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Read text efficiently
+    # Fast file reading and word splitting
     with open(input_path, 'r', encoding='utf-8') as f:
-        text = f.read()
+        # Read the entire file at once and split
+        words = re.findall(PAT, f.read())
 
-    # Initialize word frequencies with pre-allocated lists
+    # Fast initial word frequency counting
     word_freqs = {}
-    for word in re.findall(PAT, text):
+    for word in words:
+        # Encode words only once and store as bytes
         byte_seq = tuple(word.encode('utf-8'))
         word_freqs[byte_seq] = word_freqs.get(byte_seq, 0) + 1
 
     merges = []
+    
+    # Main BPE merge loop
     while len(vocab) < vocab_size:
-        # Count pairs with optimized iteration
+        # Fast pair frequency counting
         pair_freqs = {}
         for word, freq in word_freqs.items():
+            # Skip single-byte words
             if len(word) < 2:
                 continue
+            
+            # Count pairs in single pass
             for i in range(len(word) - 1):
                 pair = (word[i], word[i + 1])
                 pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
@@ -308,20 +316,21 @@ def run_train_bpe(
         if not pair_freqs:
             break
 
-        # Find best pair without using max()
+        # Fast best pair selection without using max()
         best_pair = None
-        best_count = -1
-        for pair, count in pair_freqs.items():
-            if count > best_count or (count == best_count and pair > best_pair):
-                best_count = count
+        best_freq = -1
+        for pair, freq in pair_freqs.items():
+            if freq > best_freq or (freq == best_freq and pair > best_pair):
+                best_freq = freq
                 best_pair = pair
 
+        # Add merge to list and vocab
         merges.append(best_pair)
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merges with minimal allocations
+        # Fast merge application
         new_word_freqs = {}
         for word, freq in word_freqs.items():
             if len(word) < 2:
@@ -331,15 +340,18 @@ def run_train_bpe(
             # Optimized merge operation
             new_word = []
             i = 0
-            while i < len(word):
-                if i + 1 < len(word) and (word[i], word[i+1]) == best_pair:
+            word_len = len(word)
+            while i < word_len:
+                if i + 1 < word_len and (word[i], word[i + 1]) == best_pair:
                     new_word.append(new_token)
                     i += 2
                 else:
                     new_word.append(word[i])
                     i += 1
 
-            new_word_freqs[tuple(new_word)] = new_word_freqs.get(tuple(new_word), 0) + freq
+            # Convert to tuple once at the end
+            new_word = tuple(new_word)
+            new_word_freqs[new_word] = new_word_freqs.get(new_word, 0) + freq
 
         word_freqs = new_word_freqs
 
