@@ -267,16 +267,18 @@ def get_tokenizer(
     
     return tokenizer
 
-def run_train_bpe(
-    input_path: str | os.PathLike,
-    vocab_size: int,
-    special_tokens: list[str],
-    **kwargs,
-):
-    """Fast BPE training implementation without NumPy"""
-    PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+import os
+import re
+import numpy as np
+from collections import Counter
+import mmap
+
+def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], **kwargs):
+    """Optimized NumPy-accelerated BPE training implementation."""
     
-    # Initialize vocab (bytes 0-255)
+    PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""", re.UNICODE)
+
+    # Initialize vocabulary
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
 
@@ -285,35 +287,31 @@ def run_train_bpe(
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Process text efficiently
-    word_freqs = {}
+    # Process text efficiently using memory-mapped file
+    word_freqs = Counter()
     with open(input_path, 'r', encoding='utf-8') as f:
-        for word in PAT.findall(f.read()):
-            # Convert to bytes sequence
-            word_bytes = tuple(bytes([b]) for b in word.encode('utf-8'))
-            word_freqs[word_bytes] = word_freqs.get(word_bytes, 0) + 1
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            words = PAT.findall(mm.read().decode('utf-8'))
+            for word in words:
+                word_bytes = tuple(word.encode('utf-8'))
+                word_freqs[word_bytes] += 1
 
     merges = []
-    pair_freqs = {}
-    
     while len(vocab) < vocab_size:
-        # Count pairs efficiently
-        pair_freqs.clear()
+        # Count pairs
+        pair_counts = Counter()
         for word, freq in word_freqs.items():
-            if len(word) < 2:
-                continue
             for i in range(len(word) - 1):
-                pair = (word[i], word[i + 1])
-                pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
+                pair_counts[(word[i], word[i + 1])] += freq
 
-        if not pair_freqs:
+        if not pair_counts:
             break
 
-        # Find best pair
-        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
-        
-        # Add to merges and vocab
+        # Find the most frequent pair
+        best_pair, _ = max(pair_counts.items(), key=lambda x: x[1])
         merges.append(best_pair)
+
+        # Create new token
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
@@ -325,9 +323,8 @@ def run_train_bpe(
                 new_word_freqs[word] = freq
                 continue
 
-            # Fast merge with minimal allocations
-            i = 0
             new_word = []
+            i = 0
             while i < len(word):
                 if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
                     new_word.append(new_token)
@@ -335,10 +332,9 @@ def run_train_bpe(
                 else:
                     new_word.append(word[i])
                     i += 1
-            
-            word_tuple = tuple(new_word)
-            new_word_freqs[word_tuple] = new_word_freqs.get(word_tuple, 0) + freq
 
-        word_freqs = new_word_freqs
+            new_word_freqs[tuple(new_word)] = freq
+
+        word_freqs = new_word_freqs  # Update the dictionary directly
 
     return vocab, merges
