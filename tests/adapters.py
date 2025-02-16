@@ -276,82 +276,65 @@ def run_train_bpe(
     """Optimized BPE training implementation"""
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     
-    # Fast vocabulary initialization
+    # Read file contents first
+    with open(input_path, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    # Initialize word frequencies directly with bytes
+    word_freqs = {}
+    for word in re.findall(PAT, text):
+        word_bytes = word.encode('utf-8')
+        word_seq = tuple(bytes([b]) for b in word_bytes)  # Each byte as a bytes object
+        word_freqs[word_seq] = word_freqs.get(word_seq, 0) + 1
+
+    # Initialize vocabulary with single bytes
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
-    
-    # Fast special token handling - encode only once
+
+    # Add special tokens
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Fast file reading and word splitting
-    with open(input_path, 'r', encoding='utf-8') as f:
-        # Read the entire file at once and split
-        words = re.findall(PAT, f.read())
-
-    # Fast initial word frequency counting
-    word_freqs = {}
-    for word in words:
-        # Encode words only once and store as bytes
-        byte_seq = tuple(word.encode('utf-8'))
-        word_freqs[byte_seq] = word_freqs.get(byte_seq, 0) + 1
-
     merges = []
-    
-    # Main BPE merge loop
     while len(vocab) < vocab_size:
-        # Fast pair frequency counting
+        # Count pair frequencies
         pair_freqs = {}
         for word, freq in word_freqs.items():
-            # Skip single-byte words
             if len(word) < 2:
                 continue
-            
-            # Count pairs in single pass
-            for i in range(len(word) - 1):
-                pair = (word[i], word[i + 1])
+            for pair in zip(word[:-1], word[1:]):
                 pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
 
         if not pair_freqs:
             break
 
-        # Fast best pair selection without using max()
-        best_pair = None
-        best_freq = -1
-        for pair, freq in pair_freqs.items():
-            if freq > best_freq or (freq == best_freq and pair > best_pair):
-                best_freq = freq
-                best_pair = pair
-
-        # Add merge to list and vocab
+        # Find best pair
+        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
         merges.append(best_pair)
-        new_token = best_pair[0] + best_pair[1]
+
+        # Create new token
+        new_token = best_pair[0] + best_pair[1]  # Concatenate bytes objects
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Fast merge application
+        # Apply merges
         new_word_freqs = {}
         for word, freq in word_freqs.items():
             if len(word) < 2:
                 new_word_freqs[word] = freq
                 continue
 
-            # Optimized merge operation
-            new_word = []
             i = 0
-            word_len = len(word)
-            while i < word_len:
-                if i + 1 < word_len and (word[i], word[i + 1]) == best_pair:
+            new_word = []
+            while i < len(word):
+                if i + 1 < len(word) and (word[i], word[i+1]) == best_pair:
                     new_word.append(new_token)
                     i += 2
                 else:
                     new_word.append(word[i])
                     i += 1
-
-            # Convert to tuple once at the end
-            new_word = tuple(new_word)
-            new_word_freqs[new_word] = new_word_freqs.get(new_word, 0) + freq
+            new_word_freqs[tuple(new_word)] = freq
 
         word_freqs = new_word_freqs
 
