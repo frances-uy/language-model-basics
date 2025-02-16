@@ -275,80 +275,72 @@ def run_train_bpe(
 ):
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     
-    # Initialize vocabulary more efficiently
-    vocab = dict(zip(range(256), (bytes([i]) for i in range(256))))
+    # Initialize vocab directly
+    vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
 
-    # Add special tokens efficiently
+    # Add special tokens with minimal overhead
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Read and pre-tokenize text
+    # Read text efficiently
     with open(input_path, 'r', encoding='utf-8') as f:
         text = f.read()
-    
-    # More efficient word frequency counting
-    word_freqs = Counter(
-        tuple(bytes([b]) for b in word.encode('utf-8'))
-        for word in re.findall(PAT, text)
-    )
+
+    # Initialize word frequencies with pre-allocated lists
+    word_freqs = {}
+    for word in re.findall(PAT, text):
+        byte_seq = tuple(word.encode('utf-8'))
+        word_freqs[byte_seq] = word_freqs.get(byte_seq, 0) + 1
 
     merges = []
-    
-    # Pre-compute word splits for efficiency
-    word_splits = {word: list(word) for word in word_freqs.keys()}
-    
     while len(vocab) < vocab_size:
-        # Count pairs more efficiently using pre-split words
-        pair_freqs = defaultdict(int)
-        for word, splits in word_splits.items():
-            if len(splits) < 2:
+        # Count pairs with optimized iteration
+        pair_freqs = {}
+        for word, freq in word_freqs.items():
+            if len(word) < 2:
                 continue
-            freq = word_freqs[word]
-            for i in range(len(splits) - 1):
-                pair = (splits[i], splits[i + 1])
-                pair_freqs[pair] += freq
+            for i in range(len(word) - 1):
+                pair = (word[i], word[i + 1])
+                pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
 
         if not pair_freqs:
             break
 
-        # Get best pair
-        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
+        # Find best pair without using max()
+        best_pair = None
+        best_count = -1
+        for pair, count in pair_freqs.items():
+            if count > best_count or (count == best_count and pair > best_pair):
+                best_count = count
+                best_pair = pair
+
         merges.append(best_pair)
-        
-        # Add merge result to vocab
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merges more efficiently
-        new_word_freqs = Counter()
-        new_word_splits = {}
-        
+        # Apply merges with minimal allocations
+        new_word_freqs = {}
         for word, freq in word_freqs.items():
-            splits = word_splits[word]
-            if len(splits) < 2:
+            if len(word) < 2:
                 new_word_freqs[word] = freq
-                new_word_splits[word] = splits
                 continue
 
-            # Optimize merge operation
+            # Optimized merge operation
+            new_word = []
             i = 0
-            new_splits = []
-            while i < len(splits):
-                if i + 1 < len(splits) and (splits[i], splits[i+1]) == best_pair:
-                    new_splits.append(new_token)
+            while i < len(word):
+                if i + 1 < len(word) and (word[i], word[i+1]) == best_pair:
+                    new_word.append(new_token)
                     i += 2
                 else:
-                    new_splits.append(splits[i])
+                    new_word.append(word[i])
                     i += 1
-                    
-            new_word = tuple(new_splits)
-            new_word_freqs[new_word] += freq
-            new_word_splits[new_word] = new_splits
+
+            new_word_freqs[tuple(new_word)] = new_word_freqs.get(tuple(new_word), 0) + freq
 
         word_freqs = new_word_freqs
-        word_splits = new_word_splits
 
     return vocab, merges
