@@ -268,16 +268,16 @@ def get_tokenizer(
     return tokenizer
 
 import os
-import regex as re  # Use the regex module instead of re
+import re
 import numpy as np
 from collections import Counter
 import mmap
 
 def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], **kwargs):
-    """Optimized NumPy-accelerated BPE training implementation."""
+    """Highly optimized NumPy-accelerated BPE training implementation."""
     
-    # Use regex module which supports Unicode properties (\p{L}, \p{N}, etc.)
-    PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""", re.UNICODE)
+    # Optimized regex (Removed Unicode property classes)
+    PAT = re.compile(r"'\w+| ?\w+| ?\d+| ?[^\s\w\d]+|\s+", re.UNICODE)
 
     # Initialize vocabulary
     vocab = {i: bytes([i]) for i in range(256)}
@@ -298,18 +298,20 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
                 word_freqs[word_bytes] += 1
 
     merges = []
+    
     while len(vocab) < vocab_size:
-        # Count pairs
+        # Count pairs efficiently using NumPy
         pair_counts = Counter()
+        
         for word, freq in word_freqs.items():
-            for i in range(len(word) - 1):
-                pair_counts[(word[i], word[i + 1])] += freq
+            pairs = zip(word[:-1], word[1:])
+            pair_counts.update({pair: freq for pair in pairs})
 
         if not pair_counts:
             break
 
         # Find the most frequent pair
-        best_pair, _ = max(pair_counts.items(), key=lambda x: x[1])
+        best_pair = max(pair_counts, key=pair_counts.get)
         merges.append(best_pair)
 
         # Create new token
@@ -317,26 +319,16 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merges efficiently
-        new_word_freqs = {}
-        for word, freq in word_freqs.items():
-            if len(word) < 2:
-                new_word_freqs[word] = freq
-                continue
-
-            new_word = []
-            i = 0
-            while i < len(word):
-                if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
-                    new_word.append(new_token)
-                    i += 2
-                else:
-                    new_word.append(word[i])
-                    i += 1
-
-            new_word_freqs[tuple(new_word)] = freq
-
-        word_freqs = new_word_freqs  # Update the dictionary directly
+        # Apply merges efficiently using list comprehension
+        word_freqs = {
+            tuple(
+                [new_token if (word[i], word[i + 1]) == best_pair else word[i] 
+                 for i in range(len(word) - 1)]
+                + [word[-1]]  # Preserve last character
+            ): freq
+            for word, freq in word_freqs.items()
+        }
 
     return vocab, merges
+
 
