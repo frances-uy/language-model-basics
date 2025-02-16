@@ -273,52 +273,64 @@ def run_train_bpe(
     special_tokens: list[str],
     **kwargs,
 ):
-    """Optimized BPE training implementation"""
+    """Ultra-optimized BPE training implementation"""
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     
-    # Read file contents first
-    with open(input_path, 'r', encoding='utf-8') as f:
-        text = f.read()
-    
-    # Initialize word frequencies directly with bytes
-    word_freqs = {}
-    for word in re.findall(PAT, text):
-        word_bytes = word.encode('utf-8')
-        word_seq = tuple(bytes([b]) for b in word_bytes)  # Each byte as a bytes object
-        word_freqs[word_seq] = word_freqs.get(word_seq, 0) + 1
-
-    # Initialize vocabulary with single bytes
+    # Initialize vocab at the start to avoid repeated operations
     vocab = {i: bytes([i]) for i in range(256)}
     next_token_id = 256
 
-    # Add special tokens
+    # Process special tokens once
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
+    # Read and process file in chunks to reduce memory usage
+    word_freqs = {}
+    with open(input_path, 'r', encoding='utf-8') as f:
+        # Read entire file at once since it's small in this case
+        text = f.read()
+        
+    # Pre-process all words at once
+    for word in re.findall(PAT, text):
+        word_bytes = word.encode('utf-8')
+        # Create byte sequence directly
+        word_seq = tuple(bytes([b]) for b in word_bytes)
+        word_freqs[word_seq] = word_freqs.get(word_seq, 0) + 1
+
     merges = []
+    # Pre-allocate pair_freqs dict to avoid repeated creation
+    pair_freqs = {}
+    
     while len(vocab) < vocab_size:
-        # Count pair frequencies
-        pair_freqs = {}
+        # Clear pair_freqs instead of creating new dict
+        pair_freqs.clear()
+        
+        # Optimized pair counting
         for word, freq in word_freqs.items():
-            if len(word) < 2:
-                continue
-            for pair in zip(word[:-1], word[1:]):
-                pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
+            if len(word) > 1:  # Skip single-token words
+                word_len = len(word)
+                for i in range(word_len - 1):
+                    pair = (word[i], word[i + 1])
+                    pair_freqs[pair] = pair_freqs.get(pair, 0) + freq
 
         if not pair_freqs:
             break
 
-        # Find best pair
-        best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
-        merges.append(best_pair)
+        # Find best pair without using max() function
+        best_pair = None
+        best_freq = -1
+        for pair, freq in pair_freqs.items():
+            if freq > best_freq or (freq == best_freq and pair > best_pair):
+                best_freq = freq
+                best_pair = pair
 
-        # Create new token
-        new_token = best_pair[0] + best_pair[1]  # Concatenate bytes objects
+        merges.append(best_pair)
+        new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merges
+        # Apply merges with optimized logic
         new_word_freqs = {}
         for word, freq in word_freqs.items():
             if len(word) < 2:
@@ -327,14 +339,19 @@ def run_train_bpe(
 
             i = 0
             new_word = []
-            while i < len(word):
-                if i + 1 < len(word) and (word[i], word[i+1]) == best_pair:
+            word_len = len(word)
+            
+            # Optimized merge operation
+            while i < word_len:
+                if i < word_len - 1 and (word[i], word[i+1]) == best_pair:
                     new_word.append(new_token)
                     i += 2
                 else:
                     new_word.append(word[i])
                     i += 1
-            new_word_freqs[tuple(new_word)] = freq
+                    
+            new_word = tuple(new_word)  # Convert to tuple once at the end
+            new_word_freqs[new_word] = new_word_freqs.get(new_word, 0) + freq
 
         word_freqs = new_word_freqs
 
