@@ -312,9 +312,9 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
         best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
         merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))  # Ensure byte output format
 
-        # Create new token
-        new_token = best_pair[0] + best_pair[1]
-        vocab[next_token_id] = bytes([new_token])
+        # Create new token (FIXED)
+        new_token = b"".join([bytes([best_pair[0]]), bytes([best_pair[1]])])
+        vocab[next_token_id] = new_token  # Store as a byte sequence
         next_token_id += 1
 
         # Apply merge in-place for speed
