@@ -268,7 +268,7 @@ def get_tokenizer(
     return tokenizer
 
 import os
-import re
+import regex as re  # Use the regex module instead of re
 import numpy as np
 from collections import Counter
 import mmap
@@ -276,6 +276,7 @@ import mmap
 def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], **kwargs):
     """Optimized NumPy-accelerated BPE training implementation."""
     
+    # Use regex module which supports Unicode properties (\p{L}, \p{N}, etc.)
     PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""", re.UNICODE)
 
     # Initialize vocabulary
