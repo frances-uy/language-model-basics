@@ -273,67 +273,82 @@ def run_train_bpe(
     special_tokens: list[str],
     **kwargs,
 ):
-    # Keep the original implementation
-    
-    # Pre-tokenization regex pattern
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
-    # Initialize vocabulary with bytes 0-255
-    vocab = {i: bytes([i]) for i in range(256)}
+    
+    # Initialize vocabulary more efficiently
+    vocab = dict(zip(range(256), (bytes([i]) for i in range(256))))
     next_token_id = 256
 
-    # Add special tokens to vocab
+    # Add special tokens efficiently
     for token in special_tokens:
         vocab[next_token_id] = token.encode('utf-8')
         next_token_id += 1
 
-    # Read input text
+    # Read and pre-tokenize text
     with open(input_path, 'r', encoding='utf-8') as f:
         text = f.read()
-
-    # Pre-tokenize and convert to bytes
-    word_freqs = Counter()
-    for word in re.findall(PAT, text):
-        # Convert directly to bytes and store as tuple
-        word_freqs[tuple(bytes([b]) for b in word.encode('utf-8'))] += 1
+    
+    # More efficient word frequency counting
+    word_freqs = Counter(
+        tuple(bytes([b]) for b in word.encode('utf-8'))
+        for word in re.findall(PAT, text)
+    )
 
     merges = []
+    
+    # Pre-compute word splits for efficiency
+    word_splits = {word: list(word) for word in word_freqs.keys()}
+    
     while len(vocab) < vocab_size:
-        # Count pair frequencies
+        # Count pairs more efficiently using pre-split words
         pair_freqs = defaultdict(int)
-        for word, freq in word_freqs.items():
-            if len(word) < 2: continue
-            for pair in zip(word[:-1], word[1:]):
+        for word, splits in word_splits.items():
+            if len(splits) < 2:
+                continue
+            freq = word_freqs[word]
+            for i in range(len(splits) - 1):
+                pair = (splits[i], splits[i + 1])
                 pair_freqs[pair] += freq
 
         if not pair_freqs:
             break
 
-        # Get most frequent pair
+        # Get best pair
         best_pair = max(pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
         merges.append(best_pair)
-
+        
         # Add merge result to vocab
         new_token = best_pair[0] + best_pair[1]
         vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merge
+        # Apply merges more efficiently
         new_word_freqs = Counter()
+        new_word_splits = {}
+        
         for word, freq in word_freqs.items():
-            if len(word) < 2:
-                new_word_freqs[word] += freq
+            splits = word_splits[word]
+            if len(splits) < 2:
+                new_word_freqs[word] = freq
+                new_word_splits[word] = splits
                 continue
-                
-            word = list(word)
+
+            # Optimize merge operation
             i = 0
-            while i < len(word) - 1:
-                if (word[i], word[i+1]) == best_pair:
-                    word[i:i+2] = [new_token]
+            new_splits = []
+            while i < len(splits):
+                if i + 1 < len(splits) and (splits[i], splits[i+1]) == best_pair:
+                    new_splits.append(new_token)
+                    i += 2
                 else:
+                    new_splits.append(splits[i])
                     i += 1
-            new_word_freqs[tuple(word)] += freq
-            
+                    
+            new_word = tuple(new_splits)
+            new_word_freqs[new_word] += freq
+            new_word_splits[new_word] = new_splits
+
         word_freqs = new_word_freqs
+        word_splits = new_word_splits
 
     return vocab, merges
