@@ -310,11 +310,11 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
 
         # Find the most frequent pair (breaking ties lexicographically)
         best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
-        merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))  # Ensure byte output format
+        merges.append(best_pair)  # ✅ FIX: `best_pair` is already (bytes, bytes), no need to convert
 
-        # Create new token (FIXED)
-        new_token = b"".join([bytes([best_pair[0]]), bytes([best_pair[1]])])
-        vocab[next_token_id] = new_token  # Store as a byte sequence
+        # Create new token (Correct byte merging)
+        new_token = best_pair[0] + best_pair[1]
+        vocab[next_token_id] = new_token  # ✅ FIX: This is now correct
         next_token_id += 1
 
         # Apply merge in-place for speed
