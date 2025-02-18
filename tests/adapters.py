@@ -267,70 +267,47 @@ def get_tokenizer(
     
     return tokenizer
 
+from tokenizers import ByteLevelBPETokenizer
 import os
-import regex as re
-import numpy as np
-from collections import Counter
 from typing import List, Tuple, Dict
 
-def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], **kwargs) -> Tuple[Dict[int, bytes], List[Tuple[int, int]]]:
-    # Optimized GPT-2 pre-tokenizer regex
-    PAT = re.compile(r"'(?:[sdmt]|ll|ve|re)| ?\w+| ?\d+| ?[^\s\w\d]+|\s+", re.UNICODE)
+def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], **kwargs) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
+    """
+    Trains a Byte Pair Encoding (BPE) tokenizer using Hugging Face's `ByteLevelBPETokenizer`.
+    
+    Args:
+        input_path (str): Path to the text file for training the tokenizer.
+        vocab_size (int): Maximum vocabulary size (includes initial byte vocab, merges, and special tokens).
+        special_tokens (List[str]): List of additional special tokens.
+    
+    Returns:
+        vocab (Dict[int, bytes]): Mapping from token ID (int) to token bytes.
+        merges (List[Tuple[bytes, bytes]]): Ordered list of BPE merges.
+    """
 
-    # Initialize vocabulary (byte values 0-255 as keys, byte sequences as values)
-    vocab = {i: bytes([i]) for i in range(256)}
-    next_token_id = 256
+    # Initialize a ByteLevelBPETokenizer
+    tokenizer = ByteLevelBPETokenizer()
 
-    # Add special tokens
-    for token in special_tokens:
-        vocab[next_token_id] = token.encode('utf-8')
-        next_token_id += 1
+    # Train the tokenizer on the given input text file
+    tokenizer.train(
+        files=[input_path],
+        vocab_size=vocab_size,
+        min_frequency=2,  # Prevents rare merges
+        special_tokens=special_tokens
+    )
 
-    # Read and tokenize text efficiently
-    word_freqs = Counter()
-    with open(input_path, 'r', encoding='utf-8') as f:
-        text = f.read()
+    # Save tokenizer temporarily (needed to access vocab/merges in correct order)
+    tokenizer.save_model("bpe_tokenizer")
 
-    words = PAT.findall(text)
-    for word in words:
-        word_bytes = tuple(word.encode('utf-8'))  # Ensure raw byte format
-        word_freqs[word_bytes] += 1
+    # Load trained tokenizer
+    tokenizer = ByteLevelBPETokenizer("bpe_tokenizer/vocab.json", "bpe_tokenizer/merges.txt")
 
-    merges = []
-    while len(vocab) < vocab_size:
-        # NumPy-based pair counting
-        pair_counts = Counter()
-        for word, freq in word_freqs.items():
-            pairs = zip(word[:-1], word[1:])
-            for pair in pairs:
-                pair_counts[pair] += freq  # Fix: Directly update the counter
+    # Extract vocabulary (ID -> byte representation)
+    vocab = {idx: bytes(token, encoding='utf-8') for token, idx in tokenizer.get_vocab().items()}
 
-        if not pair_counts:
-            break
-
-        # Ensure output format matches GPT-2 (bytes, not integers)
-        best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
-        merges.append(best_pair)
-
-        # Faster token merging using bytes
-        new_token = bytes([best_pair[0]]) + bytes([best_pair[1]])
-        vocab[next_token_id] = new_token
-        next_token_id += 1
-
-        new_word_freqs = {}
-        for word, freq in word_freqs.items():
-            new_word = []
-            i = 0
-            while i < len(word):
-                if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
-                    new_word.append(tuple(new_token))  # Fix: Convert to tuple
-                    i += 2
-                else:
-                    new_word.append((word[i],))  # Ensure consistent tuple format
-                    i += 1
-            new_word_freqs[tuple(sum(new_word, ()))] = freq  # Flatten nested tuples
-
-        word_freqs = new_word_freqs
+    # Extract BPE merges in order of creation
+    merges = tokenizer.get_merges()
+    merges = [(pair[0].encode('utf-8'), pair[1].encode('utf-8')) for pair in merges]
 
     return vocab, merges
 
