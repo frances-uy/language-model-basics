@@ -311,8 +311,12 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
     # Extract vocabulary (ID -> byte representation)
     vocab = {idx: bytes(token, encoding='utf-8') for token, idx in tokenizer.get_vocab().items()}
 
-    # Extract BPE merges in order of creation
-    merges = tokenizer.get_merges()
-    merges = [(pair[0].encode('utf-8'), pair[1].encode('utf-8')) for pair in merges]
+    # **Fix: Read merges.txt manually**
+    merges = []
+    with open("bpe_tokenizer/merges.txt", "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        for line in lines[1:]:  # Skip the first line which contains metadata
+            token1, token2 = line.strip().split()
+            merges.append((token1.encode('utf-8'), token2.encode('utf-8')))
 
     return vocab, merges
