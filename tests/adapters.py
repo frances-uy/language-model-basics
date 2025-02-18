@@ -274,24 +274,27 @@ from typing import List, Tuple, Dict
 def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], **kwargs) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
     """
     Trains a Byte Pair Encoding (BPE) tokenizer using Hugging Face's `ByteLevelBPETokenizer`.
-    
+
     Args:
         input_path (str): Path to the text file for training the tokenizer.
         vocab_size (int): Maximum vocabulary size (includes initial byte vocab, merges, and special tokens).
         special_tokens (List[str]): List of additional special tokens.
-    
+
     Returns:
         vocab (Dict[int, bytes]): Mapping from token ID (int) to token bytes.
         merges (List[Tuple[bytes, bytes]]): Ordered list of BPE merges.
     """
-    
+
+    # Define output directory
+    output_dir = "bpe_tokenizer"
+
     # Initialize a ByteLevelBPETokenizer with add_prefix_space=True for GPT-2 compatibility
     tokenizer = ByteLevelBPETokenizer(add_prefix_space=True)
 
     # Convert input_path to string if it's a PosixPath
     input_path = str(input_path)
 
-    # Train the tokenizer on the given input text file
+    # Train the tokenizer
     tokenizer.train(
         files=[input_path],
         vocab_size=vocab_size,
@@ -300,20 +303,27 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
     )
 
     # Ensure the directory exists before saving
-    os.makedirs("bpe_tokenizer", exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # Save tokenizer
-    tokenizer.save_model("bpe_tokenizer")
+    tokenizer.save_model(output_dir)
+
+    # **Verify that merges.txt and vocab.json exist**
+    merges_path = os.path.join(output_dir, "merges.txt")
+    vocab_path = os.path.join(output_dir, "vocab.json")
+
+    if not os.path.exists(merges_path) or not os.path.exists(vocab_path):
+        raise FileNotFoundError(f"Tokenizer files were not saved: {merges_path} or {vocab_path} missing.")
 
     # Load trained tokenizer
-    tokenizer = ByteLevelBPETokenizer("bpe_tokenizer/vocab.json", "bpe_tokenizer/merges.txt")
+    tokenizer = ByteLevelBPETokenizer(vocab_path, merges_path)
 
     # Extract vocabulary (ID -> byte representation)
     vocab = {idx: bytes(token, encoding='utf-8') for token, idx in tokenizer.get_vocab().items()}
 
     # Fix: Read merges.txt manually while preserving order
     merges = []
-    with open("bpe_tokenizer/merges.txt", "r", encoding="utf-8") as f:
+    with open(merges_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
         for line in lines[1:]:  # Skip the first line which contains metadata
             token1, token2 = line.strip().split()
