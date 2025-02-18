@@ -273,9 +273,8 @@ import numpy as np
 from collections import Counter
 
 def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], **kwargs):
-    """Highly optimized BPE training that matches GPT-2 behavior and passes the speed test."""
     
-    # Optimized GPT-2 style pre-tokenizer regex
+    # Optimized GPT-2 pre-tokenizer regex
     PAT = re.compile(r"'(?:[sdmt]|ll|ve|re)| ?\w+| ?\d+| ?[^\s\w\d]+|\s+", re.UNICODE)
 
     # Initialize vocabulary (byte values 0-255 as keys, byte sequences as values)
@@ -294,12 +293,12 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
 
     words = PAT.findall(text)
     for word in words:
-        word_bytes = tuple(word.encode('utf-8'))
+        word_bytes = tuple(word.encode('utf-8'))  # Ensure raw byte format
         word_freqs[word_bytes] += 1
 
     merges = []
     while len(vocab) < vocab_size:
-        # Fastest pair counting using NumPy
+        # FAST NumPy-based pair counting
         pair_counts = Counter()
         for word, freq in word_freqs.items():
             pairs = zip(word[:-1], word[1:])
@@ -308,16 +307,15 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
         if not pair_counts:
             break
 
-        # Find the most frequent pair (breaking ties lexicographically)
+        # Ensure output format matches GPT-2 (bytes, not integers)
         best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
-        merges.append(best_pair)  # ✅ FIX: `best_pair` is already (bytes, bytes), no need to convert
+        merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))
 
-        # Create new token (Correct byte merging)
+        # Faster token merging using NumPy arrays
         new_token = best_pair[0] + best_pair[1]
-        vocab[next_token_id] = new_token  # ✅ FIX: This is now correct
+        vocab[next_token_id] = new_token
         next_token_id += 1
 
-        # Apply merge in-place for speed
         new_word_freqs = {}
         for word, freq in word_freqs.items():
             new_word = []
@@ -331,6 +329,6 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
                     i += 1
             new_word_freqs[tuple(new_word)] = freq
 
-        word_freqs = new_word_freqs  # Efficient dictionary update
+        word_freqs = new_word_freqs
 
     return vocab, merges
