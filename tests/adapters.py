@@ -285,8 +285,8 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
         merges (List[Tuple[bytes, bytes]]): Ordered list of BPE merges.
     """
     
-    # Initialize a ByteLevelBPETokenizer
-    tokenizer = ByteLevelBPETokenizer()
+    # Initialize a ByteLevelBPETokenizer with add_prefix_space=True for GPT-2 compatibility
+    tokenizer = ByteLevelBPETokenizer(add_prefix_space=True)
 
     # Convert input_path to string if it's a PosixPath
     input_path = str(input_path)
@@ -311,7 +311,7 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
     # Extract vocabulary (ID -> byte representation)
     vocab = {idx: bytes(token, encoding='utf-8') for token, idx in tokenizer.get_vocab().items()}
 
-    # **Fix: Read merges.txt manually**
+    # Fix: Read merges.txt manually while preserving order
     merges = []
     with open("bpe_tokenizer/merges.txt", "r", encoding="utf-8") as f:
         lines = f.readlines()
