@@ -285,47 +285,41 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
         merges (List[Tuple[bytes, bytes]]): Ordered list of BPE merges.
     """
 
-    # Define output directory
     output_dir = "bpe_tokenizer"
+    os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
 
-    # Initialize a ByteLevelBPETokenizer with add_prefix_space=True for GPT-2 compatibility
-    tokenizer = ByteLevelBPETokenizer(add_prefix_space=True)
+    # Initialize tokenizer
+    tokenizer = ByteLevelBPETokenizer(add_prefix_space=True)  # GPT-2 uses add_prefix_space=True
 
-    # Convert input_path to string if it's a PosixPath
-    input_path = str(input_path)
-
-    # Train the tokenizer
+    # Train tokenizer
     tokenizer.train(
-        files=[input_path],
+        files=[str(input_path)],  # Ensure input_path is a string
         vocab_size=vocab_size,
-        min_frequency=2,  # Prevents rare merges
+        min_frequency=2,  # Controls rare merges
         special_tokens=special_tokens
     )
-
-    # Ensure the directory exists before saving
-    os.makedirs(output_dir, exist_ok=True)
 
     # Save tokenizer
     tokenizer.save_model(output_dir)
 
-    # **Verify that merges.txt and vocab.json exist**
-    merges_path = os.path.join(output_dir, "merges.txt")
+    # Verify that the files exist
     vocab_path = os.path.join(output_dir, "vocab.json")
+    merges_path = os.path.join(output_dir, "merges.txt")
 
-    if not os.path.exists(merges_path) or not os.path.exists(vocab_path):
-        raise FileNotFoundError(f"Tokenizer files were not saved: {merges_path} or {vocab_path} missing.")
+    if not os.path.exists(vocab_path) or not os.path.exists(merges_path):
+        raise FileNotFoundError(f"Tokenizer files were not saved: Missing {vocab_path} or {merges_path}")
 
-    # Load trained tokenizer
+    # Reload tokenizer
     tokenizer = ByteLevelBPETokenizer(vocab_path, merges_path)
 
-    # Extract vocabulary (ID -> byte representation)
+    # Extract vocabulary
     vocab = {idx: bytes(token, encoding='utf-8') for token, idx in tokenizer.get_vocab().items()}
 
-    # Fix: Read merges.txt manually while preserving order
+    # Read merges manually
     merges = []
     with open(merges_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-        for line in lines[1:]:  # Skip the first line which contains metadata
+        lines = f.readlines()[1:]  # Skip first line (metadata)
+        for line in lines:
             token1, token2 = line.strip().split()
             merges.append((token1.encode('utf-8'), token2.encode('utf-8')))
 
