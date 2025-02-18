@@ -284,9 +284,12 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
         vocab (Dict[int, bytes]): Mapping from token ID (int) to token bytes.
         merges (List[Tuple[bytes, bytes]]): Ordered list of BPE merges.
     """
-
+    
     # Initialize a ByteLevelBPETokenizer
     tokenizer = ByteLevelBPETokenizer()
+
+    # Convert input_path to a string if it's a PosixPath
+    input_path = str(input_path)
 
     # Train the tokenizer on the given input text file
     tokenizer.train(
@@ -310,4 +313,3 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
     merges = [(pair[0].encode('utf-8'), pair[1].encode('utf-8')) for pair in merges]
 
     return vocab, merges
-
