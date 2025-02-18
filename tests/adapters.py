@@ -271,9 +271,9 @@ import os
 import regex as re
 import numpy as np
 from collections import Counter
+from typing import List, Tuple, Dict
 
-def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], **kwargs):
-    
+def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], **kwargs) -> Tuple[Dict[int, bytes], List[Tuple[int, int]]]:
     # Optimized GPT-2 pre-tokenizer regex
     PAT = re.compile(r"'(?:[sdmt]|ll|ve|re)| ?\w+| ?\d+| ?[^\s\w\d]+|\s+", re.UNICODE)
 
@@ -298,11 +298,12 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
 
     merges = []
     while len(vocab) < vocab_size:
-        # FAST NumPy-based pair counting
+        # NumPy-based pair counting
         pair_counts = Counter()
         for word, freq in word_freqs.items():
             pairs = zip(word[:-1], word[1:])
-            pair_counts.update({pair: freq for pair in pairs})
+            for pair in pairs:
+                pair_counts[pair] += freq  # Fix: Directly update the counter
 
         if not pair_counts:
             break
@@ -311,8 +312,8 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
         best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
         merges.append(best_pair)
 
-        # Faster token merging using NumPy arrays
-        new_token = best_pair[0] + best_pair[1]
+        # Faster token merging using bytes
+        new_token = bytes([best_pair[0]]) + bytes([best_pair[1]])
         vocab[next_token_id] = new_token
         next_token_id += 1
 
@@ -322,13 +323,14 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
             i = 0
             while i < len(word):
                 if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
-                    new_word.append(new_token)
+                    new_word.append(tuple(new_token))  # Fix: Convert to tuple
                     i += 2
                 else:
-                    new_word.append(word[i])
+                    new_word.append((word[i],))  # Ensure consistent tuple format
                     i += 1
-            new_word_freqs[tuple(new_word)] = freq
+            new_word_freqs[tuple(sum(new_word, ()))] = freq  # Flatten nested tuples
 
         word_freqs = new_word_freqs
 
     return vocab, merges
+
