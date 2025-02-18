@@ -309,7 +309,7 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], *
 
         # Ensure output format matches GPT-2 (bytes, not integers)
         best_pair = min(pair_counts.items(), key=lambda x: (-x[1], x[0]))[0]
-        merges.append((bytes([best_pair[0]]), bytes([best_pair[1]])))
+        merges.append(best_pair)
 
         # Faster token merging using NumPy arrays
         new_token = best_pair[0] + best_pair[1]
