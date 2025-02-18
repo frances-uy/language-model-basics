@@ -267,8 +267,8 @@ def get_tokenizer(
     
     return tokenizer
 
-from tokenizers import ByteLevelBPETokenizer
 import os
+from tokenizers import ByteLevelBPETokenizer
 from typing import List, Tuple, Dict
 
 def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], **kwargs) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
@@ -288,7 +288,7 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
     # Initialize a ByteLevelBPETokenizer
     tokenizer = ByteLevelBPETokenizer()
 
-    # Convert input_path to a string if it's a PosixPath
+    # Convert input_path to string if it's a PosixPath
     input_path = str(input_path)
 
     # Train the tokenizer on the given input text file
@@ -299,7 +299,10 @@ def run_train_bpe(input_path: str, vocab_size: int, special_tokens: List[str], *
         special_tokens=special_tokens
     )
 
-    # Save tokenizer temporarily (needed to access vocab/merges in correct order)
+    # Ensure the directory exists before saving
+    os.makedirs("bpe_tokenizer", exist_ok=True)
+
+    # Save tokenizer
     tokenizer.save_model("bpe_tokenizer")
 
     # Load trained tokenizer
